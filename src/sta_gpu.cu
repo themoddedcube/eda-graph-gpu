@@ -167,4 +167,114 @@ TimingResult staGpu(const TimingGraph& g, bool* ranGpu) {
     return staCpu(g);
 }
 
+// --- Persistent GPU plan: capture the level-sweep once, replay per run ---
+
+struct StaGpuPlan {
+    int n = 0, numLevels = 0;
+    int *dLevelNodes = nullptr, *dFinStart = nullptr, *dFinFrom = nullptr;
+    int *dFoutStart = nullptr, *dFoutTo = nullptr;
+    float *dFinDelay = nullptr, *dFoutDelay = nullptr, *dArrival = nullptr;
+    float *dRequired = nullptr, *dSlack = nullptr, *dMasked = nullptr, *dPeriod = nullptr;
+    void* dTemp = nullptr;
+    size_t tempBytes = 0;
+    cudaStream_t stream = nullptr;
+    cudaGraph_t graph = nullptr;
+    cudaGraphExec_t exec = nullptr;
+};
+
+void staGpuPlanDestroy(StaGpuPlan* p) {
+    if (!p) return;
+    if (p->exec) cudaGraphExecDestroy(p->exec);
+    if (p->graph) cudaGraphDestroy(p->graph);
+    if (p->stream) cudaStreamDestroy(p->stream);
+    cudaFree(p->dLevelNodes); cudaFree(p->dFinStart); cudaFree(p->dFinFrom);
+    cudaFree(p->dFinDelay); cudaFree(p->dFoutStart); cudaFree(p->dFoutTo);
+    cudaFree(p->dFoutDelay); cudaFree(p->dArrival); cudaFree(p->dRequired);
+    cudaFree(p->dSlack); cudaFree(p->dMasked); cudaFree(p->dPeriod); cudaFree(p->dTemp);
+    delete p;
+}
+
+StaGpuPlan* staGpuPlanCreate(const TimingGraph& g) {
+    int devs = 0;
+    if (cudaGetDeviceCount(&devs) != cudaSuccess || devs == 0) return nullptr;
+    StaGpuPlan* p = new StaGpuPlan();
+    p->n = g.numNodes;
+    p->numLevels = g.numLevels;
+    const int n = p->n;
+
+    if (!upload(g.levelNodes, p->dLevelNodes) || !upload(g.finStart, p->dFinStart) ||
+        !upload(g.finFrom, p->dFinFrom) || !upload(g.finDelay, p->dFinDelay) ||
+        !upload(g.foutStart, p->dFoutStart) || !upload(g.foutTo, p->dFoutTo) ||
+        !upload(g.foutDelay, p->dFoutDelay)) {
+        staGpuPlanDestroy(p);
+        return nullptr;
+    }
+    if (cudaMalloc(&p->dArrival, n * sizeof(float)) != cudaSuccess ||
+        cudaMalloc(&p->dRequired, n * sizeof(float)) != cudaSuccess ||
+        cudaMalloc(&p->dSlack, n * sizeof(float)) != cudaSuccess ||
+        cudaMalloc(&p->dMasked, n * sizeof(float)) != cudaSuccess ||
+        cudaMalloc(&p->dPeriod, sizeof(float)) != cudaSuccess) {
+        staGpuPlanDestroy(p);
+        return nullptr;
+    }
+    cub::DeviceReduce::Max(nullptr, p->tempBytes, p->dMasked, p->dPeriod, n);
+    if (cudaMalloc(&p->dTemp, p->tempBytes) != cudaSuccess ||
+        cudaStreamCreate(&p->stream) != cudaSuccess) {
+        staGpuPlanDestroy(p);
+        return nullptr;
+    }
+
+    // Capture the whole forward + reduce + backward chain into one CUDA graph.
+    const int TPB = 256;
+    if (cudaStreamBeginCapture(p->stream, cudaStreamCaptureModeThreadLocal) != cudaSuccess) {
+        staGpuPlanDestroy(p);
+        return nullptr;
+    }
+    for (int L = 0; L < g.numLevels; ++L) {
+        const int lo = g.levelStart[L], hi = g.levelStart[L + 1], count = hi - lo;
+        if (count <= 0) continue;
+        arrivalKernel<<<(count + TPB - 1) / TPB, TPB, 0, p->stream>>>(
+            lo, hi, p->dLevelNodes, p->dFinStart, p->dFinFrom, p->dFinDelay, p->dArrival);
+    }
+    poMaskKernel<<<(n + TPB - 1) / TPB, TPB, 0, p->stream>>>(n, p->dFoutStart,
+                                                            p->dArrival, p->dMasked);
+    cub::DeviceReduce::Max(p->dTemp, p->tempBytes, p->dMasked, p->dPeriod, n, p->stream);
+    for (int L = g.numLevels - 1; L >= 0; --L) {
+        const int lo = g.levelStart[L], hi = g.levelStart[L + 1], count = hi - lo;
+        if (count <= 0) continue;
+        requiredKernel<<<(count + TPB - 1) / TPB, TPB, 0, p->stream>>>(
+            lo, hi, p->dLevelNodes, p->dFoutStart, p->dFoutTo, p->dFoutDelay, p->dPeriod,
+            p->dArrival, p->dRequired, p->dSlack);
+    }
+    cudaGraph_t graph = nullptr;
+    if (cudaStreamEndCapture(p->stream, &graph) != cudaSuccess || graph == nullptr) {
+        staGpuPlanDestroy(p);
+        return nullptr;
+    }
+    p->graph = graph;
+    if (cudaGraphInstantiateWithFlags(&p->exec, graph, 0) != cudaSuccess) {
+        staGpuPlanDestroy(p);
+        return nullptr;
+    }
+    return p;
+}
+
+TimingResult staGpuPlanRun(StaGpuPlan* p) {
+    TimingResult out;
+    if (!p || !p->exec) return out;
+    const int n = p->n;
+    if (cudaGraphLaunch(p->exec, p->stream) != cudaSuccess) return out;
+    if (cudaStreamSynchronize(p->stream) != cudaSuccess) return out;
+    out.arrival.resize(n);
+    out.required.resize(n);
+    out.slack.resize(n);
+    cudaMemcpy(out.arrival.data(), p->dArrival, n * sizeof(float), cudaMemcpyDeviceToHost);
+    cudaMemcpy(out.required.data(), p->dRequired, n * sizeof(float), cudaMemcpyDeviceToHost);
+    cudaMemcpy(out.slack.data(), p->dSlack, n * sizeof(float), cudaMemcpyDeviceToHost);
+    float period = 0.0f;
+    cudaMemcpy(&period, p->dPeriod, sizeof(float), cudaMemcpyDeviceToHost);
+    out.period = period;
+    return out;
+}
+
 }  // namespace egg

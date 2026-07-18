@@ -25,6 +25,19 @@ TimingResult staCpu(const TimingGraph& g);
 // stays honest) with or without a GPU.
 TimingResult staGpu(const TimingGraph& g, bool* ranGpu);
 
+// --- Persistent GPU plan (improvement iteration 2: CUDA-graph capture) ---
+// Real STA re-evaluates the same topology many times (incremental timing inside a
+// placement / optimization loop). staGpuPlanCreate uploads the graph and captures
+// the entire level-sweep (forward + on-device period reduce + backward) into a CUDA
+// graph ONCE; staGpuPlanRun replays it with a single cudaGraphLaunch, amortizing the
+// ~2*numLevels per-level kernel-launch latencies that dominate the naive path.
+// Create returns nullptr when there is no CUDA device (callers fall back to staCpu).
+// The captured math is identical to staCpu, so the maxAbsDiff oracle still holds.
+struct StaGpuPlan;
+StaGpuPlan* staGpuPlanCreate(const TimingGraph& g);
+TimingResult staGpuPlanRun(StaGpuPlan* plan);
+void staGpuPlanDestroy(StaGpuPlan* plan);
+
 // Order-independent equivalence check: the max abs difference of the arrival
 // and required arrays (STA outputs are deterministic value arrays, so this is
 // the right comparator — not a path/order diff).

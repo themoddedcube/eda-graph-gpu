@@ -6,4 +6,9 @@ TimingResult staGpu(const TimingGraph& g, bool* ranGpu) {
     if (ranGpu) *ranGpu = false;
     return staCpu(g);
 }
+
+// No CUDA here: no plan can be built, so callers fall back to staCpu.
+StaGpuPlan* staGpuPlanCreate(const TimingGraph&) { return nullptr; }
+TimingResult staGpuPlanRun(StaGpuPlan*) { return TimingResult(); }
+void staGpuPlanDestroy(StaGpuPlan*) {}
 }  // namespace egg
