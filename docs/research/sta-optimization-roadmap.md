@@ -1,5 +1,13 @@
 # GPU STA optimization roadmap — for our level-parallel primitive
 
+> **Implementation status (measured on an H100 PCIe, CUDA 12.8):**
+> **#1 on-device period reduction + fused slack — DONE**, bit-exact.
+> **#2 CUDA-graph capture/replay (`StaGpuPlan`) — DONE**, measured **1.8–2.1× over the
+> per-launch path, up to 8.2× vs CPU** at 6.4M nodes, bit-exact (see README table).
+> **#3 warp-per-node + degree bucketing — NOT STARTED** (specified in §3 below).
+> The ESTIMATED figures below were written *before* measurement — keep them labeled as
+> estimates; the README carries the measured numbers.
+
 Scope: research the state of the art in GPU-accelerated static timing analysis (STA)
 and level-parallel DAG propagation, then turn it into a concrete, prioritized plan for
 **our** primitive in `src/sta_gpu.cu` / `src/sta_cpu.cpp`.
