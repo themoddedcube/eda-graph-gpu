@@ -13,6 +13,7 @@ endfunction()
 egg_add_test(test_hand_computed        test_hand_computed.cpp)
 egg_add_test(test_generator_invariants test_generator_invariants.cpp)
 egg_add_test(test_oracle_consistency   test_oracle_consistency.cpp)
+egg_add_test(test_edge_cases           test_edge_cases.cpp)
 
 # End-to-end smoke test: the shipped binary runs a small sweep and exits 0.
 # With no GPU it takes the honest CPU-fallback path (still exit 0); with a device
