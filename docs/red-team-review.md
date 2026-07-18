@@ -300,3 +300,21 @@ that both contradicts the static CUDA graph and re-computes an unchanging answer
 close these. Neutralize 1–5 (fair multicore + OpenTimer baseline, real netlists with
 published degree/level profiles, a true incremental or honestly-reframed replay, and a
 double-precision error bound) before submission; 6–12 are the follow-on hardening.
+
+---
+
+## Author status log (progress against this review)
+
+- **2026-07-18 — #1 (single-thread baseline): FIXED.** Added `staCpuParallel` (OpenMP,
+  bit-identical to the reference), made the all-core CPU the baseline in `main.cpp` /
+  `bench.py`. Honest headline is now ~1.7–2.6× vs 24 cores (was 8× vs 1 core); naive
+  per-launch merely ties the CPU. See lab-notebook E6.
+- **2026-07-18 — #2 (synthetic-only benchmark): PARTIALLY FIXED.** Added a DAG
+  levelizer + ISCAS-85 `.bench` reader (`src/circuit.cpp`) and a topology profiler;
+  STA is bit-exact on all 11 real ISCAS-85 circuits, and the real-vs-synthetic level/
+  degree profile is published. Remaining: a realistic *large* generator (skewed
+  fanout, irregular widths) + a large industrial design. See lab-notebook E7.
+- **2026-07-18 — adversarial tests / cycle rejection: FIXED.** `levelize` rejects
+  cycles; `test_bench_circuits` asserts it.
+- Open next: #3/#4 changing-input replay, #5 double-precision ground truth, then
+  prior-work comparison, H2D accounting, roofline, committed GPU CI logs.

@@ -179,12 +179,54 @@ isolated host is the next step (tracked in the red-team review, items #9/#11).
 
 ---
 
+## E7 — STA validated on REAL ISCAS-85 netlists + honest topology profile (2026-07-18)
+
+**Addresses red-team #2** ("every number is on a synthetic GPU-friendly DAG"). Added
+real-netlist ingestion — a general DAG **levelizer** (`src/circuit.cpp` `levelize`:
+longest-path-from-source levels, cycle rejection) and an **ISCAS-85 `.bench` reader**
+(`readBench`) — plus a topology profiler (`profileGraph`, `./build/profile`). Fetched
+all 11 public-domain ISCAS-85 circuits into `bench/circuits/` (provenance in its README).
+
+**Correctness (measured).** STA is **bit-exact (oracle MATCH) on all 11 real circuits**,
+CPU and GPU (`tests/test_bench_circuits.cpp`, 6/6 ctest green). c17 is checked against a
+hand-derived result (11 nodes, 12 arcs, 4 levels, 5 PI, 2 PO, **period 6**).
+
+**Topology profile — real vs synthetic (`./build/profile`):**
+
+| graph | nodes | levels | meanW | maxW | meanFanin | maxFanin | maxFanout |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| c432 | 196 | 18 | 10.9 | 36 | 1.71 | 9 | 9 |
+| c2670 | 1426 | 33 | 43.2 | 233 | 1.46 | 5 | 233 |
+| c7552 | 3719 | 44 | 84.5 | 355 | 1.65 | 5 | 207 |
+| syn-mid | 65,536 | 128 | 512 | 512 | 2.48 | 4 | 11 |
+| syn-big | 1,600,000 | 400 | 4000 | 4000 | 2.49 | 4 | 14 |
+
+**Findings (honest, both directions):**
+1. Correctness generalizes to real, irregular topology — not a synthetic artifact.
+2. Real *available* benchmarks are tiny (≤3.7k gates) with narrow irregular levels, so
+   the GPU is launch-bound and **the CPU is the right tool there** — the GPU regime is
+   the *large-scale* graph (10⁵–10⁷ nodes) that modern industrial designs reach.
+3. **The synthetic generator is not fully faithful:** its levels are perfectly uniform
+   (meanW == maxW) and fanin is banded ≤4, whereas real circuits have irregular widths
+   and **high-fanout hubs** (maxFanout up to ~300) + higher maxFanin (up to 16). So the
+   large-scale synthetic numbers (E4/E6) live on a *more regular* graph than reality —
+   a real limitation. **Next:** a realistic large generator (skewed fanout, irregular
+   widths, reconvergence) and, if obtainable, a large industrial design.
+
+**Reproduce.** `./build/profile bench/circuits`; `ctest -R test_bench_circuits`.
+
+---
+
 ## Open hardening backlog (from the red-team review, 2026-07-18)
 
-`docs/red-team-review.md` lists 12 criticisms. Status: **#1 (fair baseline) — DONE
-(this entry).** Next, in priority order: **#2** real netlists (ISCAS/EPFL/ITC) +
-degree/level histograms vs the synthetic generator; **#3/#4** a changing-input replay
-(update delays without re-capture) so replay models corner/MC re-evaluation, not a
-re-run of an identical answer; **#5** a double-precision ground truth + bounded fp32
-error; then prior-work comparison, H2D accounting, a roofline, adversarial tests
-(cycle rejection, extreme fanin), and committed GPU CI logs.
+`docs/red-team-review.md` lists 12 criticisms. Status:
+- **#1 fair baseline — DONE** (E6).
+- **#2 real netlists — PARTIALLY DONE** (E7): ingestion + bit-exact correctness on 11
+  ISCAS-85 circuits + real-vs-synthetic topology profile shipped. *Remaining:* a
+  realistic large generator (skewed fanout / irregular widths) and a large design.
+- **cycle rejection** (part of the "tests aren't adversarial" item) — DONE (E7 test).
+
+Next, in priority order: **#3/#4** a changing-input replay (update delays without
+re-capture) so replay models corner/MC re-evaluation, not a re-run of an identical
+answer; **#5** a double-precision ground truth + bounded fp32 error; then a realistic
+generator, prior-work comparison, H2D accounting, a roofline, and committed GPU CI logs.

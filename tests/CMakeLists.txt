@@ -15,6 +15,14 @@ egg_add_test(test_generator_invariants test_generator_invariants.cpp)
 egg_add_test(test_oracle_consistency   test_oracle_consistency.cpp)
 egg_add_test(test_edge_cases           test_edge_cases.cpp)
 
+# Real ISCAS-85 netlists: build the target and register ONE test that passes the
+# bundled circuits dir as argv[1] (an absolute path, so it resolves from the build dir).
+add_executable(test_bench_circuits test_bench_circuits.cpp)
+target_link_libraries(test_bench_circuits PRIVATE egg_sta)
+target_include_directories(test_bench_circuits PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+add_test(NAME test_bench_circuits
+         COMMAND test_bench_circuits ${CMAKE_SOURCE_DIR}/bench/circuits)
+
 # End-to-end smoke test: the shipped binary runs a small sweep and exits 0.
 # With no GPU it takes the honest CPU-fallback path (still exit 0); with a device
 # it additionally runs the oracle check and returns nonzero on any mismatch.

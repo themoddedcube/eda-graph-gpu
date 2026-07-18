@@ -7,13 +7,18 @@ ARCH   ?= sm_90
 CXX    ?= g++
 CXXFLAGS := -O2 -std=c++17 -Iinclude -fopenmp
 
-all: sta
-sta: src/main.cpp src/sta_cpu.cpp src/sta_cpu_mt.cpp src/sta_gpu.cu
+CORE := src/sta_cpu.cpp src/sta_cpu_mt.cpp src/circuit.cpp
+
+all: sta profile
+sta: src/main.cpp $(CORE) src/sta_gpu.cu
 	$(NVCC) -O2 -std=c++17 -arch=$(ARCH) -Iinclude -Xcompiler -fopenmp $^ -o $@
 
-cpu: src/main.cpp src/sta_cpu.cpp src/sta_cpu_mt.cpp src/sta_gpu_stub.cpp
+profile: src/profile_main.cpp $(CORE) src/sta_gpu.cu
+	$(NVCC) -O2 -std=c++17 -arch=$(ARCH) -Iinclude -Xcompiler -fopenmp $^ -o $@
+
+cpu: src/main.cpp $(CORE) src/sta_gpu_stub.cpp
 	$(CXX) $(CXXFLAGS) $^ -o sta
 
 clean:
-	rm -f sta *.o
+	rm -f sta profile *.o
 .PHONY: all cpu clean

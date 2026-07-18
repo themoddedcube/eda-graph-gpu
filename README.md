@@ -78,6 +78,18 @@ methodology gaps (real netlists vs the synthetic generator, a double-precision
 ground truth, a changing-input replay, prior-work comparison) are tracked openly in
 [`docs/red-team-review.md`](docs/red-team-review.md) and being worked through.
 
+## Validated on real circuits (ISCAS-85)
+
+Correctness isn't only shown on the synthetic generator: `readBench` ingests real
+combinational netlists (a general DAG levelizer + `.bench` reader), and STA is
+**bit-exact (oracle MATCH) on all 11 ISCAS-85 circuits** (c17…c7552), CPU and GPU —
+`./build/profile bench/circuits` prints each design's level/degree profile beside the
+generator's. Honest read: those real benchmarks are *small* (≤3.7k gates) so the CPU
+wins there — the GPU regime is the large-scale graph — and the profile shows the
+generator is more *uniform* (banded fanin, even level widths) than real circuits'
+high-fanout hubs. Both facts are documented in [`docs/lab-notebook.md`](docs/lab-notebook.md) (E7);
+closing the generator-realism gap is tracked next.
+
 ## Build & run
 
 ```bash
