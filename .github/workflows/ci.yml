@@ -1,0 +1,62 @@
+name: ci
+
+# The core STA library is pure C++17, so the DEFAULT CI is a CPU build + ctest
+# with g++ — this runs green on a standard GitHub-hosted ubuntu runner, which
+# has NO CUDA toolchain. A real GPU/nvcc compile is a SEPARATE, opt-in job on a
+# self-hosted runner: GH-hosted runners can't compile .cu, so requiring nvcc in
+# the default job would make CI permanently red. We keep the honest split.
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  # ---- Default: CPU build + full test suite on a stock ubuntu runner --------
+  cpu-build-and-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install build tools (g++, cmake)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends g++ cmake
+
+      - name: Show toolchain
+        run: |
+          g++ --version
+          cmake --version
+
+      - name: Configure (CPU-only — no CUDA on hosted runners, uses the stub)
+        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build
+        run: cmake --build build -j
+
+      - name: Run ctest
+        run: ctest --test-dir build --output-on-failure
+
+      - name: Benchmark smoke (CPU-only, must not fabricate a GPU number)
+        run: python3 bench/bench.py --no-build --reps 1 --sizes 16x64,32x128
+
+  # ---- Optional: nvcc compile of the GPU kernel on a self-hosted GPU box -----
+  # Guarded so it only runs where a CUDA toolchain actually exists. Enable by
+  # setting repository variable RUN_GPU_CI=true and registering a runner with
+  # the [self-hosted, gpu] labels. Never gates the default CI above.
+  gpu-compile:
+    if: ${{ vars.RUN_GPU_CI == 'true' }}
+    runs-on: [self-hosted, gpu]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Show CUDA toolchain
+        run: nvcc --version
+
+      - name: Configure (CUDA detected — compiles src/sta_gpu.cu)
+        run: cmake -S . -B build-gpu -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build (nvcc)
+        run: cmake --build build-gpu -j
+
+      - name: Run ctest (oracle check runs on-device here)
+        run: ctest --test-dir build-gpu --output-on-failure
