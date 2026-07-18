@@ -19,6 +19,12 @@ struct TimingResult {
 // This is the oracle the GPU primitive is checked against.
 TimingResult staCpu(const TimingGraph& g);
 
+// Multi-threaded CPU reference (OpenMP): the SAME level decomposition as the GPU
+// (nodes within a level in parallel, levels serial). A FAIR all-core CPU baseline
+// for the GPU comparison — not just a single thread. numThreads <= 0 uses the
+// OpenMP default (all cores). Bit-identical to staCpu (asserted in the tests).
+TimingResult staCpuParallel(const TimingGraph& g, int numThreads = 0);
+
 // GPU level-parallel STA primitive: one kernel per topological level, all nodes
 // in a level updated in parallel. Falls back to the CPU reference and sets
 // *ranGpu=false when no CUDA device is present, so the same binary runs (and

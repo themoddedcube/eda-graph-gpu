@@ -1,17 +1,18 @@
 #!/usr/bin/env python3
 """bench.py — build the STA binary, sweep graph sizes, record MEASURED timings.
 
-Honest by construction: the ``sta`` binary times staCpu, the per-launch GPU path,
-and the CUDA-graph replay path itself (min-of-N internally) and reports whether a
-CUDA device actually ran. On a box with no GPU (GitHub-hosted CI) staGpu falls back
-to the CPU reference and prints so; this script records mode="cpu-only(fallback)"
-with empty GPU columns and NEVER invents a GPU time or speedup. When a device is
-present it parses the measured GPU times + speedups straight from the binary output.
+Honest by construction: the ``sta`` binary times the 1-core CPU reference, the fair
+all-core CPU baseline (OpenMP), the per-launch GPU sweep, and the CUDA-graph replay
+path (each min-of-N internally), and reports whether a CUDA device actually ran. On a
+box with no GPU, staGpu falls back to the CPU reference and prints so; this script
+records mode="cpu-only(fallback)" with empty GPU columns and NEVER invents a GPU
+number. Speedups here are computed from the measured millisecond values, and the
+fair reference is the MULTI-CORE CPU (not a single thread).
 
 Usage:
     python3 bench/bench.py                 # configure+build, run default sweep
     python3 bench/bench.py --no-build      # reuse an existing build
-    python3 bench/bench.py --reps 5        # min-of-N timing inside the binary (default 5)
+    python3 bench/bench.py --reps 5        # min-of-N inside the binary (default 5)
     python3 bench/bench.py --csv out.csv   # where to write the CSV
     python3 bench/bench.py --sizes 128x512,400x4000
 
@@ -26,17 +27,15 @@ import sys
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
-# (levels, width) sweep. STA is O(V+E) so even the big ones finish fast.
 DEFAULT_SIZES = [(128, 512), (256, 1024), (400, 4000), (800, 8000)]
 
 RE_GRAPH = re.compile(r"nodes=(\d+)\s+levels=(\d+)\s+arcs=(\d+)")
-RE_PERIOD = re.compile(r"period\):\s*([-\d.eE+]+)")
-RE_CPU = re.compile(r"CPU STA \(min of \d+\):\s*([-\d.eE+]+)\s*ms")
-RE_COLD = re.compile(r"GPU STA cold[^:]*:\s*([-\d.eE+]+)\s*ms")
-RE_WARM = re.compile(r"GPU STA warm \(min of \d+\):\s*([-\d.eE+]+)\s*ms\s*\(([-\d.eE+]+)x")
-RE_REPLAY = re.compile(
-    r"GPU STA graph-replay \(min of \d+\):\s*([-\d.eE+]+)\s*ms\s*"
-    r"\(([-\d.eE+]+)x vs CPU,\s*([-\d.eE+]+)x vs per-launch")
+# One regex for every "CPU STA <N>-core" line; the 1-core and multi-core lines are
+# then separated by their core count (findall — NOT search, which would stop at the
+# 1-core line and mistake it for the multi-core baseline).
+RE_CPU_CORE = re.compile(r"CPU STA\s+(\d+)-core\s+\(min of \d+\):\s*([-\d.eE+]+)\s*ms")
+RE_WARM = re.compile(r"GPU STA warm \(min of \d+\):\s*([-\d.eE+]+)\s*ms")
+RE_REPLAY = re.compile(r"GPU STA graph-replay \(min of \d+\):\s*([-\d.eE+]+)\s*ms")
 RE_FALLBACK = re.compile(r"GPU STA: no CUDA device")
 
 
@@ -55,32 +54,32 @@ def configure_and_build(build_dir):
     return exe
 
 
+def _ratio(num, den):
+    return (num / den) if (den and den > 0) else None
+
+
 def parse_run(text):
     g = RE_GRAPH.search(text)
-    p = RE_PERIOD.search(text)
-    cpu = RE_CPU.search(text)
-    if not (g and p and cpu):
+    cores = {int(n): float(ms) for n, ms in RE_CPU_CORE.findall(text)}
+    if not (g and 1 in cores and len(cores) >= 2):
         raise RuntimeError("could not parse sta output:\n" + text)
+    ncores = max(cores)  # the multi-core baseline line
     row = {
-        "nodes": int(g.group(1)),
-        "levels": int(g.group(2)),
-        "arcs": int(g.group(3)),
-        "period": float(p.group(1)),
-        "cpu_ms": float(cpu.group(1)),
-        "cold_ms": None, "warm_ms": None, "warm_x": None,
-        "replay_ms": None, "replay_x": None, "replay_vs_launch": None,
+        "nodes": int(g.group(1)), "levels": int(g.group(2)), "arcs": int(g.group(3)),
+        "cpu1_ms": cores[1],
+        "ncores": ncores, "cpuN_ms": cores[ncores],
+        "warm_ms": None, "replay_ms": None,
+        "warm_vs_N": None, "replay_vs_N": None, "replay_vs_1": None,
     }
     warm = RE_WARM.search(text)
     if warm:
-        cold = RE_COLD.search(text)
-        replay = RE_REPLAY.search(text)
-        row["cold_ms"] = float(cold.group(1)) if cold else None
         row["warm_ms"] = float(warm.group(1))
-        row["warm_x"] = float(warm.group(2))
+        row["warm_vs_N"] = _ratio(row["cpuN_ms"], row["warm_ms"])
+        replay = RE_REPLAY.search(text)
         if replay:
             row["replay_ms"] = float(replay.group(1))
-            row["replay_x"] = float(replay.group(2))
-            row["replay_vs_launch"] = float(replay.group(3))
+            row["replay_vs_N"] = _ratio(row["cpuN_ms"], row["replay_ms"])
+            row["replay_vs_1"] = _ratio(row["cpu1_ms"], row["replay_ms"])
         row["mode"] = "gpu"
     elif RE_FALLBACK.search(text):
         row["mode"] = "cpu-only(fallback)"
@@ -97,17 +96,17 @@ def run_case(exe, levels, width, reps):
     return row
 
 
-HEADER = ["levels", "width", "nodes", "arcs", "period", "cpu_ms",
-          "warm_ms", "warm_x", "replay_ms", "replay_x", "replay_vs_launch", "mode"]
+HEADER = ["levels", "width", "nodes", "arcs", "cpu1_ms", "ncores", "cpuN_ms",
+          "warm_ms", "warm_vs_N", "replay_ms", "replay_vs_N", "replay_vs_1", "mode"]
 
 
 def _cell(r, h):
     v = r.get(h)
     if v is None:
         return "-"
-    if h in ("period", "cpu_ms", "warm_ms", "replay_ms"):
+    if h.endswith("_ms"):
         return "%.3f" % v
-    if h in ("warm_x", "replay_x", "replay_vs_launch"):
+    if h.startswith(("warm_vs", "replay_vs")):
         return "%.2fx" % v
     return str(v)
 
@@ -166,9 +165,9 @@ def main():
     print()
     print("STA benchmark  (measured, min-of-%d)" % args.reps)
     if any_gpu:
-        print("device: CUDA GPU present — GPU times/speedups are MEASURED on-device.")
-        print("        warm_ms = per-launch level sweep; replay_ms = CUDA-graph replay")
-        print("        (capture is a one-time cost, amortized over repeated evaluations).")
+        print("device: CUDA GPU present — GPU times are MEASURED on-device.")
+        print("        cpuN_ms = fair all-core CPU baseline (OpenMP); vs_N speedups are")
+        print("        against it. warm = per-launch sweep; replay = CUDA-graph replay.")
     else:
         print("device: NO GPU — staGpu fell back to the CPU reference.")
         print("        GPU columns left blank on purpose (nothing measured to report).")

@@ -10,6 +10,10 @@ project(eda_graph_gpu LANGUAGES CXX)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
+
+# OpenMP powers the fair multi-threaded CPU baseline (staCpuParallel). Optional:
+# without it the pragmas are ignored and the baseline runs correctly, serially.
+find_package(OpenMP QUIET COMPONENTS CXX)
 if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
     set(CMAKE_BUILD_TYPE Release CACHE STRING "" FORCE)
 endif()
@@ -43,10 +47,16 @@ endif()
 # Bundle the CPU reference + generator + the chosen GPU source into one library
 # that both the `sta` binary and the test executables link against, so the tests
 # exercise the exact same staCpu / staGpu / generateLayeredDag / maxAbsDiff code.
-add_library(egg_sta STATIC src/sta_cpu.cpp ${EGG_GPU_SOURCE})
+add_library(egg_sta STATIC src/sta_cpu.cpp src/sta_cpu_mt.cpp ${EGG_GPU_SOURCE})
 target_include_directories(egg_sta PUBLIC include)
 if(EGG_HAVE_CUDA)
     set_target_properties(egg_sta PROPERTIES CUDA_ARCHITECTURES "${CMAKE_CUDA_ARCHITECTURES}")
+endif()
+if(OpenMP_CXX_FOUND)
+    target_link_libraries(egg_sta PUBLIC OpenMP::OpenMP_CXX)
+    message(STATUS "eda-graph-gpu: OpenMP found — multi-core CPU baseline enabled")
+else()
+    message(STATUS "eda-graph-gpu: OpenMP not found — CPU baseline runs single-threaded")
 endif()
 
 # --- Binary -----------------------------------------------------------------

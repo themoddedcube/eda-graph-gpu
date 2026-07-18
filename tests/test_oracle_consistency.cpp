@@ -30,6 +30,11 @@ int main() {
         const double self = egg::maxAbsDiff(a, b);
         CHECK(self == 0.0);
 
+        // The multi-threaded CPU baseline must be BIT-IDENTICAL to the reference —
+        // same per-node float ops, order-independent period reduction.
+        const TimingResult mt = egg::staCpuParallel(g, 0);
+        CHECK(egg::maxAbsDiff(a, mt) == 0.0);
+
         // staGpu must agree with the CPU oracle.
         bool ranGpu = true;  // sentinel; staGpu overwrites it
         const TimingResult gpu = egg::staGpu(g, &ranGpu);

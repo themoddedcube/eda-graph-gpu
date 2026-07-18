@@ -5,13 +5,13 @@ CUDA   ?= /usr/local/cuda
 NVCC   ?= $(CUDA)/bin/nvcc
 ARCH   ?= sm_90
 CXX    ?= g++
-CXXFLAGS := -O2 -std=c++17 -Iinclude
+CXXFLAGS := -O2 -std=c++17 -Iinclude -fopenmp
 
 all: sta
-sta: src/main.cpp src/sta_cpu.cpp src/sta_gpu.cu
-	$(NVCC) -O2 -std=c++17 -arch=$(ARCH) -Iinclude $^ -o $@
+sta: src/main.cpp src/sta_cpu.cpp src/sta_cpu_mt.cpp src/sta_gpu.cu
+	$(NVCC) -O2 -std=c++17 -arch=$(ARCH) -Iinclude -Xcompiler -fopenmp $^ -o $@
 
-cpu: src/main.cpp src/sta_cpu.cpp src/sta_gpu_stub.cpp
+cpu: src/main.cpp src/sta_cpu.cpp src/sta_cpu_mt.cpp src/sta_gpu_stub.cpp
 	$(CXX) $(CXXFLAGS) $^ -o sta
 
 clean:
