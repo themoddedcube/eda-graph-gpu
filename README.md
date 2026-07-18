@@ -110,8 +110,11 @@ speedup.
   - ✅ **iteration 1** — on-device period reduction (`cub::DeviceReduce::Max` over
     PO-masked arrivals) + fused slack; removes the mid-pipeline host round-trip.
   - ✅ **iteration 2** — CUDA-graph capture/replay via a persistent `StaGpuPlan`
-    (`staGpuPlanCreate`/`Run`/`Destroy`): **1.8–2.1× over per-launch, up to 8.2× vs CPU**,
-    bit-exact. The incremental-STA pattern: capture once, replay per evaluation.
+    (`staGpuPlanCreate`/`UpdateDelays`/`Run`/`Destroy`): **1.8–2.1× over per-launch,
+    ~1.7–2.6× vs 24 cores**, bit-exact. The real workload is **multi-corner / Monte-Carlo
+    re-evaluation**: capture the fixed topology once, then `UpdateDelays` + replay per
+    corner — a measured **1.2× over a 24-core sweep** *including* the per-corner delay
+    upload, with the result correctly *changing* each corner (not a re-run of one answer).
   - ⏭ **iteration 3** — warp-per-node + `cub::WarpReduce` with degree bucketing
     (Warp-STAR) for the high-fanin load-imbalance case. Specified in `docs/research/`.
 - **Stage 2:** real timing-graph ingestion (from a decoupled SoA netlist / a

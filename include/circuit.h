@@ -48,4 +48,10 @@ struct GraphProfile {
 
 GraphProfile profileGraph(const TimingGraph& g);
 
+// Return a copy of g with per-arc fanin delays replaced by `newFinDelay` (same CSR
+// ordering as g.finDelay) and the fanout delays rebuilt to match — i.e. a new timing
+// CORNER over the identical topology. `newFinDelay.size()` must equal g.numArcs().
+// Used to build the CPU oracle for a corner that a GPU plan is re-evaluated under.
+TimingGraph withFinDelay(const TimingGraph& g, const std::vector<float>& newFinDelay);
+
 }  // namespace egg

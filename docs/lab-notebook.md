@@ -217,6 +217,45 @@ hand-derived result (11 nodes, 12 arcs, 4 levels, 5 PI, 2 PO, **period 6**).
 
 ---
 
+## E8 — Changing-input replay: multi-corner re-evaluation (red-team #3 + #4) (2026-07-18)
+
+**Corrects E4's framing** and closes red-team **#3** ("incremental STA contradicts a
+static CUDA graph") and **#4** ("replay recomputes a bit-identical answer"). E4 called
+replay "incremental timing", which the reviewer rightly flagged: incremental timing
+changes topology, but a CUDA graph is topology-static, and re-running the same delays N
+times models nothing. The honest workload is **multi-corner / Monte-Carlo STA**: ONE
+fixed topology re-evaluated under many different ARC DELAYS.
+
+**What.** Added `staGpuPlanUpdateDelays(plan, finDelay, foutDelay)` (`src/sta_gpu.cu`):
+it `cudaMemcpy`s a new delay set into the plan's device buffers — the captured graph
+references the same pointers, so **no re-capture** is needed, only the next replay uses
+the new delays. Added `withFinDelay` (`src/circuit.cpp`) to build the matching CPU
+oracle for a corner. `main.cpp` runs a K-corner sweep; `staGpuPlanRun` is now genuine
+work per corner.
+
+**Correctness (measured, `tests/test_corner_replay.cpp`, 7/7 ctest green).** For each of
+6 non-uniform corners (every arc scaled by a random factor in [0.5,1.5]): the GPU result
+(a) **matches `staCpu` on that corner's delays** (`maxAbsDiff ≤ 1e-2`) and (b) **differs
+from the base corner** (`maxAbsDiff > 0.5`) — so it is provably not re-running one
+answer. A wrong-size update is rejected and does not corrupt the plan.
+
+**Measured corner sweep** (H100, 1.6M-node graph, K=16 delay sets):
+
+| | time | note |
+|---|---:|---|
+| CPU 24-core (re-solve each corner) | 208.5 ms | fair all-core baseline |
+| GPU plan (updateDelays + replay per corner) | 171.4 ms | **1.22×**, results vary (`|c0−clast|=153`) |
+
+**Honest read.** Only ~1.2× here, *not* the 1.7× of a single evaluation, because the
+sweep **includes the per-corner H2D upload of the delay arrays** (~2·numArcs floats ×
+K) — a real cost we deliberately time, and exactly the transfer the reviewer's H2D point
+cares about. The win is modest but genuine, and correctness on changing input is exact.
+A future step generates corners on-device to remove that upload.
+
+**Reproduce.** `./build/sta 400 4000` → the `corner sweep` line; `ctest -R test_corner_replay`.
+
+---
+
 ## Open hardening backlog (from the red-team review, 2026-07-18)
 
 `docs/red-team-review.md` lists 12 criticisms. Status:
@@ -225,8 +264,11 @@ hand-derived result (11 nodes, 12 arcs, 4 levels, 5 PI, 2 PO, **period 6**).
   ISCAS-85 circuits + real-vs-synthetic topology profile shipped. *Remaining:* a
   realistic large generator (skewed fanout / irregular widths) and a large design.
 - **cycle rejection** (part of the "tests aren't adversarial" item) — DONE (E7 test).
+- **#3/#4 changing-input replay — DONE** (E8): `staGpuPlanUpdateDelays` + multi-corner
+  re-evaluation; results provably change per corner and match the CPU oracle; the
+  per-corner H2D delay upload is included in the measured sweep (partial answer to the
+  H2D item too).
 
-Next, in priority order: **#3/#4** a changing-input replay (update delays without
-re-capture) so replay models corner/MC re-evaluation, not a re-run of an identical
-answer; **#5** a double-precision ground truth + bounded fp32 error; then a realistic
-generator, prior-work comparison, H2D accounting, a roofline, and committed GPU CI logs.
+Next, in priority order: **#5** a double-precision ground truth + bounded fp32 error;
+then a realistic large generator, prior-work comparison, a roofline, on-device corner
+generation (to remove the delay-upload cost), and committed GPU CI logs.

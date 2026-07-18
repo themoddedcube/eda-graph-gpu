@@ -190,4 +190,16 @@ GraphProfile profileGraph(const TimingGraph& g) {
     return p;
 }
 
+TimingGraph withFinDelay(const TimingGraph& g, const std::vector<float>& newFinDelay) {
+    TimingGraph r = g;  // copy topology, levels, and CSR index arrays
+    r.finDelay = newFinDelay;
+    // Rebuild foutDelay by the SAME reversal mapping that produced g.foutTo, so each
+    // fanout slot gets the updated delay of its arc.
+    std::vector<int> cur(g.foutStart.begin(), g.foutStart.end() - 1);
+    for (int v = 0; v < g.numNodes; ++v)
+        for (int p = g.finStart[v]; p < g.finStart[v + 1]; ++p)
+            r.foutDelay[cur[g.finFrom[p]]++] = newFinDelay[p];
+    return r;
+}
+
 }  // namespace egg

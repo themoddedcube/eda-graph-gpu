@@ -9,6 +9,10 @@ TimingResult staGpu(const TimingGraph& g, bool* ranGpu) {
 
 // No CUDA here: no plan can be built, so callers fall back to staCpu.
 StaGpuPlan* staGpuPlanCreate(const TimingGraph&) { return nullptr; }
+bool staGpuPlanUpdateDelays(StaGpuPlan*, const std::vector<float>&,
+                            const std::vector<float>&) {
+    return false;
+}
 TimingResult staGpuPlanRun(StaGpuPlan*) { return TimingResult(); }
 void staGpuPlanDestroy(StaGpuPlan*) {}
 }  // namespace egg

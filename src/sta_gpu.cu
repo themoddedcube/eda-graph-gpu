@@ -170,7 +170,7 @@ TimingResult staGpu(const TimingGraph& g, bool* ranGpu) {
 // --- Persistent GPU plan: capture the level-sweep once, replay per run ---
 
 struct StaGpuPlan {
-    int n = 0, numLevels = 0;
+    int n = 0, numLevels = 0, numArcs = 0;
     int *dLevelNodes = nullptr, *dFinStart = nullptr, *dFinFrom = nullptr;
     int *dFoutStart = nullptr, *dFoutTo = nullptr;
     float *dFinDelay = nullptr, *dFoutDelay = nullptr, *dArrival = nullptr;
@@ -200,6 +200,7 @@ StaGpuPlan* staGpuPlanCreate(const TimingGraph& g) {
     StaGpuPlan* p = new StaGpuPlan();
     p->n = g.numNodes;
     p->numLevels = g.numLevels;
+    p->numArcs = g.numArcs();
     const int n = p->n;
 
     if (!upload(g.levelNodes, p->dLevelNodes) || !upload(g.finStart, p->dFinStart) ||
@@ -257,6 +258,24 @@ StaGpuPlan* staGpuPlanCreate(const TimingGraph& g) {
         return nullptr;
     }
     return p;
+}
+
+bool staGpuPlanUpdateDelays(StaGpuPlan* p, const std::vector<float>& finDelay,
+                            const std::vector<float>& foutDelay) {
+    if (!p || static_cast<int>(finDelay.size()) != p->numArcs ||
+        static_cast<int>(foutDelay.size()) != p->numArcs)
+        return false;
+    // Only the contents of the delay buffers change; the captured graph references
+    // the same device pointers, so no re-capture is needed — the next replay uses
+    // the new delays. This is what makes multi-corner / Monte-Carlo re-evaluation
+    // cheap: pay the capture once, then swap delays + replay per corner.
+    if (cudaMemcpy(p->dFinDelay, finDelay.data(), p->numArcs * sizeof(float),
+                   cudaMemcpyHostToDevice) != cudaSuccess)
+        return false;
+    if (cudaMemcpy(p->dFoutDelay, foutDelay.data(), p->numArcs * sizeof(float),
+                   cudaMemcpyHostToDevice) != cudaSuccess)
+        return false;
+    return true;
 }
 
 TimingResult staGpuPlanRun(StaGpuPlan* p) {

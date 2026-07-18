@@ -318,3 +318,10 @@ double-precision error bound) before submission; 6–12 are the follow-on harden
   cycles; `test_bench_circuits` asserts it.
 - Open next: #3/#4 changing-input replay, #5 double-precision ground truth, then
   prior-work comparison, H2D accounting, roofline, committed GPU CI logs.
+- **2026-07-18 — #3 (incremental framing) + #4 (identical-answer replay): FIXED.**
+  Added `staGpuPlanUpdateDelays` so a captured plan is re-evaluated under many timing
+  CORNERS (new arc delays, same topology — a valid static CUDA graph). Reframed the
+  workload honestly as multi-corner / Monte-Carlo STA (not "incremental"). Test
+  `test_corner_replay` proves each corner's GPU result matches its own CPU oracle AND
+  differs from the base corner; the measured K=16 sweep beats a 24-core CPU 1.22×
+  *including* the per-corner H2D delay upload. See lab-notebook E8.

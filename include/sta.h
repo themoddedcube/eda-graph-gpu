@@ -31,16 +31,24 @@ TimingResult staCpuParallel(const TimingGraph& g, int numThreads = 0);
 // stays honest) with or without a GPU.
 TimingResult staGpu(const TimingGraph& g, bool* ranGpu);
 
-// --- Persistent GPU plan (improvement iteration 2: CUDA-graph capture) ---
-// Real STA re-evaluates the same topology many times (incremental timing inside a
-// placement / optimization loop). staGpuPlanCreate uploads the graph and captures
-// the entire level-sweep (forward + on-device period reduce + backward) into a CUDA
-// graph ONCE; staGpuPlanRun replays it with a single cudaGraphLaunch, amortizing the
-// ~2*numLevels per-level kernel-launch latencies that dominate the naive path.
-// Create returns nullptr when there is no CUDA device (callers fall back to staCpu).
-// The captured math is identical to staCpu, so the maxAbsDiff oracle still holds.
+// --- Persistent GPU plan (CUDA-graph capture) ---
+// The real workload this targets is re-evaluating ONE fixed timing graph under many
+// different ARC DELAYS: multi-corner timing, Monte-Carlo / statistical STA, and
+// incremental delay ECOs. The topology is static (so a CUDA graph is valid) but the
+// delays change every evaluation (so it is genuine work, not a re-run of an identical
+// answer). staGpuPlanCreate uploads the graph + captures the whole level sweep into a
+// CUDA graph ONCE; staGpuPlanUpdateDelays swaps in a new set of arc delays without any
+// re-capture (only device buffer contents change, not the graph); staGpuPlanRun
+// replays with a single cudaGraphLaunch. Create returns nullptr when there is no CUDA
+// device (callers fall back to staCpu). The captured math is identical to staCpu, so
+// the maxAbsDiff oracle holds for every delay set.
 struct StaGpuPlan;
 StaGpuPlan* staGpuPlanCreate(const TimingGraph& g);
+// Replace the plan's arc delays (same CSR ordering as the graph it was built from):
+// finDelay indexed like TimingGraph::finDelay, foutDelay like foutDelay. Returns false
+// on a null plan or a size mismatch. The next staGpuPlanRun uses the new delays.
+bool staGpuPlanUpdateDelays(StaGpuPlan* plan, const std::vector<float>& finDelay,
+                            const std::vector<float>& foutDelay);
 TimingResult staGpuPlanRun(StaGpuPlan* plan);
 void staGpuPlanDestroy(StaGpuPlan* plan);
 

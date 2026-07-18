@@ -8,11 +8,14 @@
 #include <cstdlib>
 #include <algorithm>
 #include <limits>
+#include <random>
+#include <vector>
 
 #ifdef _OPENMP
 #include <omp.h>
 #endif
 
+#include "circuit.h"
 #include "sta.h"
 
 using Clock = std::chrono::steady_clock;
@@ -111,6 +114,46 @@ int main(int argc, char** argv) {
                     reps, graphMs, graphMs > 0 ? cpuMs / graphMs : 0.0,
                     graphMs > 0 ? cpuMtMs / graphMs : 0.0, cpuThreads,
                     graphMs > 0 ? gpuMs / graphMs : 0.0, buildMs);
+    }
+
+    // --- Multi-corner re-evaluation: the real job the plan exists for (not a re-run
+    // of one answer). K delay sets over the SAME topology; GPU pays capture once, then
+    // updateDelays + replay per corner; CPU re-solves each corner on all cores. ---
+    {
+        const int K = 16;
+        std::mt19937_64 rng(0xC0FFEEULL);
+        std::uniform_real_distribution<float> scale(0.5f, 1.5f);
+        std::vector<egg::TimingGraph> corners;
+        corners.reserve(K);
+        for (int k = 0; k < K; ++k) {
+            std::vector<float> dl(g.finDelay.size());
+            for (size_t i = 0; i < dl.size(); ++i) dl[i] = g.finDelay[i] * scale(rng);
+            corners.push_back(egg::withFinDelay(g, dl));
+        }
+        auto tcpu = Clock::now();
+        double sink = 0.0;
+        for (int k = 0; k < K; ++k)
+            sink += egg::staCpuParallel(corners[k], cpuThreads).period;
+        const double cpuSweepMs = msSince(tcpu);
+
+        egg::StaGpuPlan* cp = egg::staGpuPlanCreate(g);
+        if (cp) {
+            const egg::TimingResult first = egg::staGpuPlanRun(cp);
+            egg::TimingResult last;
+            auto tg = Clock::now();
+            for (int k = 0; k < K; ++k) {
+                egg::staGpuPlanUpdateDelays(cp, corners[k].finDelay, corners[k].foutDelay);
+                last = egg::staGpuPlanRun(cp);
+            }
+            const double gpuSweepMs = msSince(tg);
+            const double varies = egg::maxAbsDiff(first, last);
+            egg::staGpuPlanDestroy(cp);
+            std::printf("corner sweep (%d delay sets): CPU %d-core %7.2f ms | GPU plan "
+                        "%7.2f ms  (%.2fx; results vary, |c0-clast|=%.1f)\n",
+                        K, cpuThreads, cpuSweepMs, gpuSweepMs,
+                        gpuSweepMs > 0 ? cpuSweepMs / gpuSweepMs : 0.0, varies);
+        }
+        (void)sink;
     }
 
     const double dAll = std::max(std::max(d, dg), cpuMtDiff);
