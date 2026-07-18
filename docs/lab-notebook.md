@@ -134,3 +134,57 @@ reports "GPU cross-checked on N graphs". On a CPU-only box the GPU branches skip
 honestly (still exit 0), matching CI's default job.
 
 **Reproduce.** `ctest --test-dir build --output-on-failure`.
+
+---
+
+## E6 — Fair 24-core CPU baseline retires the "8× vs 1-core" headline (2026-07-18)
+
+**Corrects E2 and E4.** Those entries reported the GPU win **vs a single CPU thread**
+(up to 8.2×). A hostile-reviewer pass (`docs/red-team-review.md`, criticism #1)
+correctly calls that a strawman: real STA (OpenTimer et al.) uses every core. Added
+`src/sta_cpu_mt.cpp` `staCpuParallel` — the SAME level decomposition via OpenMP,
+**bit-identical to `staCpu`** (asserted: `tests/test_oracle_consistency.cpp`
+`maxAbsDiff==0`) — and made it the baseline in `main.cpp` / `bench.py`.
+
+**Measured** (min-of-15, H100 vs all 24 cores):
+
+| nodes | CPU 1-core | CPU 24-core | GPU per-launch | GPU graph-replay | replay vs 24-core |
+|---:|---:|---:|---:|---:|---:|
+| 262,144 | 5.08 ms | 3.53 ms | 3.95 ms | 1.82 ms | 1.9× |
+| 1,600,000 | 32.8 ms | 16.2 ms | 12.4 ms | 6.19 ms | 2.6× |
+| 6,400,000 | 131 ms | 27.6 ms | 32.5 ms | 15.9 ms | 1.7× |
+
+**Finding.** Against a fair all-core baseline the honest win is **~1.7–2.6×**, not 8×,
+and the **naive per-launch GPU merely ties the 24-core CPU** (0.85–1.31×) — the
+CUDA-graph optimization (E4) is what actually earns the GPU its keep. The headline
+number changed by ~4× once the baseline was made fair; keeping E2/E4 above, uncorrected
+in place, per append-only discipline.
+
+**Two methodology traps caught while doing this (both fixed):**
+- *Silent single-threading.* The OpenMP thread count followed an ambient
+  `OMP_NUM_THREADS` / inherited CPU-affinity mask, so a subprocess baseline silently
+  ran on 1 thread while claiming "24-core". Fixed by setting the count explicitly to
+  `omp_get_num_procs()` (`src/sta_cpu_mt.cpp`, `src/main.cpp`) — deterministic now.
+- *Parser matched the wrong line.* `bench.py`'s `(\d+)-core` regex matched the
+  *1-core* line first and mislabeled it the multi-core baseline. Fixed to select the
+  max-core line. (A reminder that "measured" includes measuring the harness.)
+
+**Estimated vs measured caveat.** The 24-core baseline is memory-bandwidth-bound and
+**noisy on this shared cloud box**: min-of-15 `replay vs 24-core` moved ±0.4× between
+runs with CPU contention (a stray 96%-CPU neighbor process was visible during one
+sweep). The numbers above are approximate; the GPU times are stable. A quiet, named,
+isolated host is the next step (tracked in the red-team review, items #9/#11).
+
+**Reproduce.** `python3 bench/bench.py --reps 15` → the `cpuN`/`replay_vs_N` columns.
+
+---
+
+## Open hardening backlog (from the red-team review, 2026-07-18)
+
+`docs/red-team-review.md` lists 12 criticisms. Status: **#1 (fair baseline) — DONE
+(this entry).** Next, in priority order: **#2** real netlists (ISCAS/EPFL/ITC) +
+degree/level histograms vs the synthetic generator; **#3/#4** a changing-input replay
+(update delays without re-capture) so replay models corner/MC re-evaluation, not a
+re-run of an identical answer; **#5** a double-precision ground truth + bounded fp32
+error; then prior-work comparison, H2D accounting, a roofline, adversarial tests
+(cycle rejection, extreme fanin), and committed GPU CI logs.

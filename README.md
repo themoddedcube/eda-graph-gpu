@@ -48,27 +48,35 @@ each level is a fully data-parallel update — a textbook GPU **level-sweep**:
   same binary is correct everywhere and never fabricates a GPU result or speedup.
 - Numbers reported by `main` are **measured**, not modeled.
 
-## Measured on an H100 PCIe (CUDA 12.8, min-of-5)
+## Measured on an H100 PCIe vs a fair 24-core CPU (CUDA 12.8, min-of-15)
 
-Every GPU number below is **measured on-device** and **bit-exact** against the CPU
-reference (`maxAbsDiff == 0` at every size). `warm` is the per-launch level sweep with
-the CUDA context already live; `graph-replay` is the persistent-plan CUDA-graph path
-(improvement iteration 2). Speedups are vs a single-thread CPU reference.
+Every GPU number is **measured on-device** and **bit-exact** against the CPU reference
+(`maxAbsDiff == 0` at every size). The honest baseline is **all 24 CPU cores**
+(`staCpuParallel`, the same level decomposition via OpenMP — bit-identical to the
+serial reference), *not* one thread. `per-launch` is the naive level sweep;
+`graph-replay` is the persistent-plan CUDA-graph path (iteration 2).
 
-| nodes | arcs | CPU | GPU warm (per-launch) | GPU graph-replay | oracle |
+| nodes | CPU 1-core | **CPU 24-core** | GPU per-launch | GPU graph-replay | replay vs 24-core |
 |---:|---:|---:|---:|---:|:--:|
-| 65,536 | 162,565 | 1.27 ms | 1.72 ms · 0.74× | **0.82 ms · 1.54×** | MATCH |
-| 262,144 | 652,834 | 5.10 ms | 3.79 ms · 1.35× | **1.81 ms · 2.82×** | MATCH |
-| 1,600,000 | 3,991,836 | 32.9 ms | 10.4 ms · 3.18× | **5.74 ms · 5.73×** | MATCH |
-| 6,400,000 | 15,980,582 | 132 ms | 33.0 ms · 3.99× | **16.1 ms · 8.18×** | MATCH |
+| 262,144 | 5.08 ms | 3.53 ms | 3.95 ms | 1.82 ms | **1.9×** |
+| 1,600,000 | 32.8 ms | 16.2 ms | 12.4 ms | 6.19 ms | **2.6×** |
+| 6,400,000 | 131 ms | 27.6 ms | 32.5 ms | 15.9 ms | **1.7×** |
 
-**Read it honestly:** (1) the *first* GPU call pays a one-time CUDA context init
-(~210–310 ms) — amortized to nothing in a real STA loop that re-evaluates the same
-graph, but a genuine cost we report separately, never hidden. (2) The naive per-launch
-sweep is **launch-bound and loses on small graphs** (0.74× at 65k) — the CUDAadvisor
-thesis on our own code. (3) The CUDA-graph plan collapses the ~2·levels per-level
-launches into one replay, buying **1.8–2.1× over per-launch** and pushing the crossover
-below 65k, scaling to **8.2× at 6.4M nodes**. Reproduce with `python3 bench/bench.py`.
+**Read it honestly — this is the number that survives review:**
+1. Against a *single* core the GPU looks like 5–8×, but that is a strawman. Against a
+   **fair all-core CPU** the honest win is **~1.7–2.6×**, and the naive per-launch GPU
+   merely **ties** the 24-core CPU (0.85–1.31×) — so **the CUDA-graph optimization is
+   what makes the GPU actually worth it**, not the raw offload.
+2. The 24-core CPU baseline is memory-bandwidth-bound and **noisy on this shared cloud
+   box** (the `replay vs 24-core` ratio moves ±0.4× run-to-run with CPU contention);
+   treat these as approximate, not to three digits. The GPU times are stable.
+3. The first GPU call pays a one-time CUDA context init (~210–310 ms), reported
+   separately and amortized across a real re-evaluation loop — never hidden.
+
+Reproduce: `python3 bench/bench.py` (writes `bench/results.csv`). Remaining
+methodology gaps (real netlists vs the synthetic generator, a double-precision
+ground truth, a changing-input replay, prior-work comparison) are tracked openly in
+[`docs/red-team-review.md`](docs/red-team-review.md) and being worked through.
 
 ## Build & run
 
