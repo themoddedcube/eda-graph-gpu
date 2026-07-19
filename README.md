@@ -119,8 +119,10 @@ speedup.
     (Warp-STAR) for the high-fanin load-imbalance case. Specified in `docs/research/`.
 - **Stage 2:** real timing-graph ingestion (from a decoupled SoA netlist / a
   Bookshelf+library front-end) and a benchmark harness.
-- **Stage 3:** connectivity/cones (route to **cuGraph** BFS/WCC — buy, don't build),
-  then routing wavefronts (build).
+- **Stage 3:** ✅ **basic traversals routed to cuGraph — done** ([`graph_routing/`](graph_routing/)):
+  BFS / WCC / SSSP are oracle-checked on the GPU against a pure-Python reference on all
+  11 ISCAS-85 circuits (topological sort + DFS have no cuGraph primitive → we build
+  them). Next: routing wavefronts (build).
 - **Stage 4:** a `use_eda_graph_gpu` route in CUDAadvisor so it advises + emits calls
   to these primitives, measured-speedup gated, honest retain-CPU when they don't pay.
 

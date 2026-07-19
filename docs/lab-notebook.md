@@ -256,6 +256,44 @@ A future step generates corners on-device to remove that upload.
 
 ---
 
+## E9 — Basic graph traversals → cuGraph, oracle-checked (the "buy" half) (2026-07-19)
+
+**What.** Built the complement to the STA primitive: the standard EDA graph traversals
+routed to **cuGraph** where it has a real parallel primitive, kept on our own reference
+where it doesn't (`graph_routing/`). Installed RAPIDS cuGraph 26.06 into `.venv-rapids`
+(gitignored); it imports in ~1.3 s and runs on the H100.
+
+**The mapping (honest build-vs-buy).** cuGraph provides BFS, WCC/SCC, SSSP, PageRank —
+but **no topological sort and no DFS** (both inherently sequential). So:
+- BFS / WCC / SSSP / PageRank / SCC → **buy** (route to cuGraph).
+- Topological sort (= the STA levelization) and DFS → **build** (our levelizer /
+  CPU reference). No cuGraph primitive exists to route to.
+
+**Validation (measured, `graph_routing/test_routing.py`).** Each routed primitive runs
+on the GPU and is checked **bit-for-bit against the pure-Python oracle** (`graphkit.py`)
+on a synthetic graph + **all 11 ISCAS-85 circuits**. Result: **every case MATCHes**
+("ROUTING OK — every cuGraph result matched the oracle"). Sample:
+
+```
+c2670: bfs MATCH (reach=5)   wcc MATCH (80 comps)  sssp MATCH
+c7552: bfs MATCH (reach=8)   wcc MATCH (5 comps)   sssp MATCH
+```
+
+**Two real-netlist convention findings (both fixed, not cuGraph defects):**
+1. **WCC on isolated nodes.** Real circuits have unconnected primary inputs; the
+   union-find oracle counts each as its own component, but cuGraph never sees a node
+   absent from the edgelist. c2670 exposed it (oracle 80 vs cuGraph-lumped 5). Fix:
+   the adapter gives each absent node its own singleton component — then 80 == 80.
+2. **SSSP on parallel arcs.** A gate with a repeated input yields parallel arcs; the
+   arbitrary per-index weights made the min-path ambiguous (c3540 mismatch). Fix: run
+   SSSP on the deduped simple graph, so both sides see identical weights.
+
+**Reproduce.** `.venv-rapids/bin/python graph_routing/test_routing.py`.
+Without cuGraph the reference oracle still runs and routing reports "wired, GPU
+validation skipped" — never a fake pass.
+
+---
+
 ## Open hardening backlog (from the red-team review, 2026-07-18)
 
 `docs/red-team-review.md` lists 12 criticisms. Status:
