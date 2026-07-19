@@ -57,6 +57,24 @@ void staGpuPlanDestroy(StaGpuPlan* plan);
 // the right comparator — not a path/order diff).
 double maxAbsDiff(const TimingResult& a, const TimingResult& b);
 
+// --- Double-precision ground truth + fp32 error bound ---
+// fp32-vs-fp32 equality (maxAbsDiff) is self-referential: it shows the GPU matches the
+// CPU reference, but both round identically. staCpuDouble computes the SAME STA in
+// double precision (the truth for these exact float inputs); fp32Error bounds the
+// error of an fp32 result against it, including slack near zero (cancellation-prone).
+struct TimingResultD {
+    std::vector<double> arrival, required, slack;
+    double period = 0.0;
+};
+TimingResultD staCpuDouble(const TimingGraph& g);
+
+struct Fp32Error {
+    double maxAbsArrival = 0.0, maxAbsRequired = 0.0, maxAbsSlack = 0.0;
+    double maxRelArrival = 0.0;          // relative to the fp64 arrival
+    double worstSlackAbsNearZero = 0.0;  // worst |slack err| where |slack_fp64| < 1
+};
+Fp32Error fp32Error(const TimingResult& f, const TimingResultD& d);
+
 // Deterministic synthetic layered-DAG timing graph: `numLevels` levels of
 // `widthPerLevel` nodes; each non-source node draws 1..maxFaninPerNode fanin
 // arcs from the preceding one or two levels, with random delays.

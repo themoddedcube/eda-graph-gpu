@@ -325,3 +325,10 @@ double-precision error bound) before submission; 6–12 are the follow-on harden
   `test_corner_replay` proves each corner's GPU result matches its own CPU oracle AND
   differs from the base corner; the measured K=16 sweep beats a 24-core CPU 1.22×
   *including* the per-corner H2D delay upload. See lab-notebook E8.
+- **2026-07-19 — #5 (fp32 has no ground truth): FIXED.** Added `staCpuDouble` (double-
+  precision STA) + `fp32Error`; `test_precision` bounds the fp32 CPU and GPU results
+  against the fp64 truth on deep graphs — rel arrival err ~1 ppm, worst near-zero slack
+  err ~2.5e-3 even at 1200 levels. See lab-notebook E10.
+- **2026-07-19 — basic traversals -> cuGraph: DONE** (not a criticism, a roadmap item):
+  BFS/WCC/SSSP routed to cuGraph, oracle-checked on all 11 ISCAS-85 circuits;
+  topological sort + DFS have no cuGraph primitive (build). See `graph_routing/`, E9.

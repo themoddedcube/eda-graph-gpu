@@ -47,7 +47,7 @@ endif()
 # Bundle the CPU reference + generator + the chosen GPU source into one library
 # that both the `sta` binary and the test executables link against, so the tests
 # exercise the exact same staCpu / staGpu / generateLayeredDag / maxAbsDiff code.
-add_library(egg_sta STATIC src/sta_cpu.cpp src/sta_cpu_mt.cpp src/circuit.cpp ${EGG_GPU_SOURCE})
+add_library(egg_sta STATIC src/sta_cpu.cpp src/sta_cpu_mt.cpp src/sta_double.cpp src/circuit.cpp ${EGG_GPU_SOURCE})
 target_include_directories(egg_sta PUBLIC include)
 if(EGG_HAVE_CUDA)
     set_target_properties(egg_sta PROPERTIES CUDA_ARCHITECTURES "${CMAKE_CUDA_ARCHITECTURES}")

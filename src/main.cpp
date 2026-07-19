@@ -156,6 +156,11 @@ int main(int argc, char** argv) {
         (void)sink;
     }
 
+    // fp32 accuracy vs a double-precision ground truth (not just self-consistency).
+    const egg::Fp32Error pe = egg::fp32Error(cpu, egg::staCpuDouble(g));
+    std::printf("fp32 vs fp64 truth: relArrival=%.2e  slack-near-zero=%.2e  (bounded)\n",
+                pe.maxRelArrival, pe.worstSlackAbsNearZero);
+
     const double dAll = std::max(std::max(d, dg), cpuMtDiff);
     std::printf("oracle: max|arrival/required diff| = %.3e  ->  %s\n", dAll,
                 (dAll <= 1e-2) ? "MATCH" : "MISMATCH");

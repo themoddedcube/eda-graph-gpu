@@ -7,7 +7,7 @@ ARCH   ?= sm_90
 CXX    ?= g++
 CXXFLAGS := -O2 -std=c++17 -Iinclude -fopenmp
 
-CORE := src/sta_cpu.cpp src/sta_cpu_mt.cpp src/circuit.cpp
+CORE := src/sta_cpu.cpp src/sta_cpu_mt.cpp src/sta_double.cpp src/circuit.cpp
 
 all: sta profile
 sta: src/main.cpp $(CORE) src/sta_gpu.cu

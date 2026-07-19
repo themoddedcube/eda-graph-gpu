@@ -294,6 +294,34 @@ validation skipped" — never a fake pass.
 
 ---
 
+## E10 — fp32 error bounded against a double-precision truth (red-team #5) (2026-07-19)
+
+**Closes red-team #5** ("fp32 bit-exactness is self-referential — no ground truth").
+`maxAbsDiff == 0` only shows the GPU matches the *equally-rounded* fp32 CPU reference.
+Added `staCpuDouble` (`src/sta_double.cpp`) — the same STA in double precision, the
+truth for these exact float inputs — and `fp32Error`, which bounds the fp32 result's
+error including slack near zero (the cancellation-prone timing-critical region).
+
+**Measured** (`tests/test_precision.cpp`, deep graphs where fp32 error is worst):
+
+| levels | period | rel arrival err | max abs slack err | worst near-zero slack err |
+|---:|---:|---:|---:|---:|
+| 400 | 1453 | 7.3e-07 | 1.4e-03 | 2.0e-04 |
+| 800 | 2911 | 1.3e-06 | 4.5e-03 | 1.2e-03 |
+| 1200 | 4324 | 1.2e-06 | 5.2e-03 | 2.5e-03 |
+
+**Finding.** Even at **1200 levels** of accumulation the fp32 result is accurate to
+**~1 ppm** relative on arrival, and slack in the critical near-zero region is good to
+**~2.5e-3** absolute — orders of magnitude below any real timing margin. So the fp32
+primitive is trustworthy against ground truth, not merely self-consistent; the GPU
+result (also fp32) is checked to the same bound. The test asserts explicit bounds
+(relArrival < 1e-4, near-zero slack < 1e-1) so a regression would fail CI.
+
+**Reproduce.** `./build/tests/test_precision`; `./build/sta 400 4000` prints the
+`fp32 vs fp64 truth` line.
+
+---
+
 ## Open hardening backlog (from the red-team review, 2026-07-18)
 
 `docs/red-team-review.md` lists 12 criticisms. Status:
@@ -307,6 +335,11 @@ validation skipped" — never a fake pass.
   per-corner H2D delay upload is included in the measured sweep (partial answer to the
   H2D item too).
 
-Next, in priority order: **#5** a double-precision ground truth + bounded fp32 error;
-then a realistic large generator, prior-work comparison, a roofline, on-device corner
-generation (to remove the delay-upload cost), and committed GPU CI logs.
+- **#5 double-precision ground truth — DONE** (E10): `staCpuDouble` + `fp32Error`; fp32
+  bounded to ~1 ppm relative arrival, ~2.5e-3 near-zero slack, even at 1200 levels.
+- **basic traversals → cuGraph — DONE** (E9): BFS/WCC/SSSP oracle-checked on the GPU vs
+  a reference on all 11 ISCAS-85 circuits; toposort/DFS have no cuGraph primitive → build.
+
+Next, in priority order: a realistic large generator (skewed fanout / irregular widths),
+prior-work comparison on shared benchmarks, a roofline / bandwidth analysis, on-device
+corner generation (to remove the delay-upload cost), and committed GPU CI logs.

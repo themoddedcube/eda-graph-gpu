@@ -15,6 +15,7 @@ egg_add_test(test_generator_invariants test_generator_invariants.cpp)
 egg_add_test(test_oracle_consistency   test_oracle_consistency.cpp)
 egg_add_test(test_edge_cases           test_edge_cases.cpp)
 egg_add_test(test_corner_replay        test_corner_replay.cpp)
+egg_add_test(test_precision            test_precision.cpp)
 
 # Real ISCAS-85 netlists: build the target and register ONE test that passes the
 # bundled circuits dir as argv[1] (an absolute path, so it resolves from the build dir).
